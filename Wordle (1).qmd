@@ -1,0 +1,129 @@
+---
+title: "Wordle"
+format: html
+editor: visual
+---
+
+## Let's Play Wordle!
+
+1.  Load dictionary.
+
+```{r}
+load_dictionary <- function(filename){
+  require(tidyverse)
+  dictionary <- read.csv(filename, header = TRUE)
+  dictionary <- dictionary[["words"]]
+  dictionary <- toupper(dictionary)
+  return(dictionary)
+}
+```
+
+2.  Make valid list and solution list.
+
+    ```{r}
+    valid_list <- load_dictionary("collins-scrabble-words-2019.csv")
+    solution_list <- load_dictionary("google-10000-english-usa-no-swears.csv")
+    solution_list <- intersect(solution_list, valid_list)
+    ```
+
+3.  Picking solution function.
+
+    ```{r}
+    pick_solution <- function(dictionary, word_length = 5){
+      require(tidyverse)
+      possible_solutions <- dictionary[nchar(dictionary) == word_length]
+      solution <- sample(possible_solutions, 1)
+      print(solution)
+      solution_vector <- str_split(solution, "")[[1]]
+    }
+    ```
+
+4.  Playing Wordle code:
+
+    ```{r}
+    play_wordle <- function(solution, valid_list, num_guesses = 6, output_type = "text"){
+      require(tidyverse)
+      require(sjmisc)
+      word_length <- length(solution)
+      print(paste0("You have ", num_guesses, " chances to guess a word of length ", word_length))
+      letters_left <- LETTERS
+      guess_history <- data.frame(matrix(nrow = num_guesses, ncol = word_length))
+      result_history <- data.frame(matrix(nrow = num_guesses, ncol = word_length))
+      for (i in 1:num_guesses){
+        print(paste0(c("Letters left: ", letters_left), collapse = " "))
+        guess <- readline(paste0("Enter guess ", i, ": ")) %>% toupper()
+        while (nchar(guess) != word_length){
+          guess <- readline(paste0("Guess must have ", word_length, " characters. Enter guess ", i, " again : " )) %>% toupper()
+        }
+        while (guess %nin% valid_list){
+          guess <- readline(paste0("Hmm, that word is not in my dictionary of valid words. Enter guess ", i, " again: ")) %>% toupper()
+        }
+        guess <- str_split(guess, "")[[1]]
+        result <- evaluate_guess(guess, solution)
+        letters_left <- setdiff(letters_left, guess)
+        guess_history[i,] <- guess
+        result_history[i,] <- result
+        if (all(result == "*")){
+          guess_history <- guess_history %>% na.omit()
+          result_history <- result_history %>% na.omit()
+          print(paste0("You won in ", i, " guesses!"))
+          guess_history <- guess_history %>% unite(everything(), sep="", col="guess", remove=TRUE)
+          result_history <- result_history %>% unite(everything(), sep="", col="result", remove=TRUE)
+          history <- data.frame(
+            guess = guess_history,
+            result = result_history)
+          print(history)
+          return(invisible(history))
+        } else {
+          history <- data.frame(
+            guess = paste0(guess, collapse = ""), result = paste0(result, collapse = ""))
+          print(history)
+        }
+      }
+      print(paste0("Sorry, you lost! Solution was ", paste0(solution, collapse = "")))
+      guess_history <- guess_history %>% unite(everything(), sep="", col="guess", remove=TRUE)
+      result_history <- result_history %>% unite(everything(), sep="", col="result", remove=TRUE)
+      history <- data.frame(guess = guess_history, result = result_history)
+      print(history)
+      return(invisible(history))
+    }
+    ```
+
+5.  Code to evaluate the guess entered:
+
+    ```{r}
+    evaluate_guess <- function(guess, solution){
+      word_length <- length(solution)
+      text_result <- rep("-", word_length)
+      guess_count <- tibble(letter = guess) %>%
+        group_by(letter) %>%
+        summarize(n_in_guess = n())
+      solution_count <- tibble(letter = solution) %>%
+        group_by(letter) %>%
+        summarize(n_in_solution = n())
+      counts <- inner_join(guess_count, solution_count, by = "letter") %>%
+        mutate(to_clear = n_in_guess - n_in_solution) %>%
+        filter(to_clear > 0) %>%
+        select(letter, to_clear)
+      for (i in 1:word_length){
+        text_result[i] <- case_when (guess[i] %in% solution & guess[i] == solution[i] ~ "*", guess[i] %in% solution & guess[i] != solution[i] ~ "+", guess[i] %nin% solution ~ "-")
+        for (j in counts$letter){
+          if (guess[i] == j & text_result[i] != "*" & counts[counts$letter==j,]$to_clear > 0){
+            text_result[i] <- "-"
+            counts[counts$letter==j,]$to_clear <- counts[counts$letter==j,]$to_clear - 1
+          }
+        }
+      }
+      return(text_result)
+    }
+    ```
+
+6.  To finally play:
+
+    ```{r}
+    solution <- pick_solution(solution_list, word_length = 6)
+    game <- play_wordle(solution, valid_list, num_guesses = 6, output_type = "text")
+    #| include: false
+    detach(tidyverse)
+    detach(sjmisc)
+    ```
